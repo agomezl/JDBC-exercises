@@ -29,7 +29,7 @@ public class ComputerShop
     {
         try {
             Class.forName("org.postgresql.Driver");
-            String url = "jdbc:postgresql://localhost/computer-shop";
+            String url = "jdbc:postgresql://localhost/computer_store";
             Properties props = new Properties();
             props.setProperty("user",USERNAME);
             props.setProperty("password",PASSWORD);
@@ -125,7 +125,7 @@ public class ComputerShop
                                   float hd,
                                   float screen) throws SQLException {
         String[] attrs = {"maker", "speed", "ram", "hd", "screen"};
-        String query = "SELECT * FROM Laptop";
+        String query = "SELECT * FROM Laptops";
         PreparedStatement st = conn.prepareStatement(query);
         // st.setFloat(1, speed);
         // st.setFloat(2, ram);
