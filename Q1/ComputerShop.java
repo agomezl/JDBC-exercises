@@ -110,11 +110,38 @@ public class ComputerShop
     }
 
     private static void exerciseA(Connection conn, int price) throws SQLException {
-        String query = "SELECT * FROM Pcs";
+        String query = "WITH R1 AS (" +
+            "     SELECT model," +
+            "            speed," +
+            "            abs(price - ?) AS diff" +
+            "     FROM pcs" +
+            "     )," +
+            "     R2  AS (" +
+            "     SELECT MIN(diff) AS minimum" +
+            "     FROM R1" +
+            "     )," +
+            "     R3 AS (" +
+            "     SELECT model," +
+            "            speed" +
+            "     FROM R1" +
+            "     WHERE diff = (SELECT minimum from R2)" +
+            "     )" +
+            "SELECT maker," +
+            "       model," +
+            "       speed " +
+            " FROM R3" +
+            "      NATURAL JOIN products";
         PreparedStatement st = conn.prepareStatement(query);
-        // st.setInt(1, price);
+        st.setInt(1, price);
         ResultSet rs = st.executeQuery();
-        printTable(new String[]{"model", "speed", "ram", "hd", "price"},rs);
+        while (rs.next()) {
+            System.out.print("Maker: ");
+            System.out.println(rs.getString(1));
+            System.out.print("Model: ");
+            System.out.println(rs.getString(2));
+            System.out.print("Speed : ");
+            System.out.println(rs.getString(3));
+        }
         rs.close();
         st.close();
     }
@@ -125,33 +152,97 @@ public class ComputerShop
                                   float hd,
                                   float screen) throws SQLException {
         String[] attrs = {"maker", "speed", "ram", "hd", "screen"};
-        String query = "SELECT * FROM Laptops";
+        String query = "WITH R1 AS (" +
+            " SELECT * " +
+            "    FROM laptops " +
+            " WHERE speed >= ?" +
+            "    AND ram >= ?" +
+            "    AND hd >= ?" +
+            "    AND screen >= ?" +
+            " )," +
+            "     R2 AS (" +
+            " SELECT model," +
+            "        maker " +
+            "    FROM products" +
+            " ) " +
+            "SELECT * " +
+            "FROM R1 " +
+            "NATURAL JOIN R2 ";
         PreparedStatement st = conn.prepareStatement(query);
-        // st.setFloat(1, speed);
-        // st.setFloat(2, ram);
-        // st.setFloat(3, hd);
-        // st.setFloat(4, screen);
+        st.setFloat(1, speed);
+        st.setFloat(2, ram);
+        st.setFloat(3, hd);
+        st.setFloat(4, screen);
         ResultSet rs = st.executeQuery();
-        printTable(attrs, rs);
+
+        if(rs.isBeforeFirst())
+            printTable(attrs, rs);
+        else
+            System.out.println("No laptop found");
+
         rs.close();
         st.close();
     }
 
     private static void exerciseC(Connection conn, String manufacturer) throws SQLException {
-        String query = "SELECT * FROM Products";
-        PreparedStatement st = conn.prepareStatement(query);
-        ResultSet rs = st.executeQuery();
-        printTable(new String[]{"maker","model","type"},rs);
-        rs.close();
-        st.close();
+        Map<String, String[]> tables = new HashMap<String, String[]>();
+        tables.put("PCs", new String[] {"model", "speed", "ram", "hd", "price"});
+        tables.put("Laptops", new String[] {"model", "speed", "ram", "hd", "screen", "price"});
+        tables.put("Printers", new String[] {"model", "color", "type", "price"});
+
+        final int NOTHING_FOUND = 3;
+        int notFoundCount = 0;
+        for (Map.Entry<String, String[]> entry : tables.entrySet()) {
+                String query = "SELECT * " +
+                    "FROM " + entry.getKey() + " " +
+                    "NATURAL JOIN products " +
+                    "WHERE products.maker = ?";
+                PreparedStatement st = conn.prepareStatement(query);
+                st.setString(1, manufacturer);
+
+                ResultSet rs = st.executeQuery();
+
+                if (rs.isBeforeFirst()) {
+                    System.out.format("%20s", entry.getKey());
+                    System.out.println();
+                    printTable(entry.getValue(), rs);
+                    System.out.println();
+                } else
+                    notFoundCount++;
+
+                rs.close();
+                st.close();
+        }
+
+        if (notFoundCount == NOTHING_FOUND)
+            System.out.println("No products found for manufacturer: " + manufacturer);
     }
 
     private static void exerciseD(Connection conn, int budget, float speed) throws SQLException {
-        String query = "SELECT * FROM Pcs";
+        String query = "WITH R1 AS (" +
+            "SELECT pcs.model AS pc, " +
+            "       printers.model AS printer, " +
+            "       pcs.price + printers.price AS system_price, " +
+            "       printers.color AS printer_color " +
+            "FROM pcs, " +
+            "     printers " +
+            "WHERE pcs.price + printers.price <= ? " +
+            "      AND pcs.speed >= ? " +
+            ") " +
+            "SELECT pc, " +
+            "       printer " +
+            "FROM R1 " +
+            "ORDER BY system_price, " +
+            "         printer_color DESC LIMIT 1";
         PreparedStatement st = conn.prepareStatement(query);
-        // st.setInt(1, price);
+        st.setInt(1, budget);
+        st.setFloat(2, speed);
         ResultSet rs = st.executeQuery();
-        printTable(new String[]{"model", "speed", "ram", "hd", "price"},rs);
+        if (rs.next()) {
+            System.out.println("PC model: " + rs.getString(1));
+            System.out.println("Printer model: " + rs.getString(2));
+        } else
+            System.out.println("No system matches the requirements.");
         rs.close();
         st.close();
     }
@@ -163,10 +254,33 @@ public class ComputerShop
                                   float ram,
                                   float hd,
                                   float price) throws SQLException {
-        String query = "SELECT * FROM Products";
+        String query = "SELECT model FROM products WHERE model = ?";
         PreparedStatement st = conn.prepareStatement(query);
+        st.setInt(1, model);
         ResultSet rs = st.executeQuery();
-        printTable(new String[]{"maker","model","type"},rs);
+        if (rs.next()) {
+            System.out.println("A product with model no. " + model + " already exists.");
+        } else {
+            String insertPc = "INSERT INTO pcs VALUES (?,?,?,?,?)";
+            String insertProduct = "INSERT INTO products VALUES (?,?,'pc')";
+            conn.setAutoCommit(false);
+
+            PreparedStatement stPc = conn.prepareStatement(insertPc);
+            stPc.setInt(1, model);
+            stPc.setFloat(2, speed);
+            stPc.setFloat(3, ram);
+            stPc.setFloat(4, hd);
+            stPc.setFloat(5, price);
+
+            PreparedStatement stProduct = conn.prepareStatement(insertProduct);
+            stProduct.setString(1, maker);
+            stProduct.setInt(2, model);
+
+            stPc.executeUpdate();
+            stProduct.executeUpdate();
+            conn.commit();
+            conn.setAutoCommit(true);
+        }
         rs.close();
         st.close();
     }
